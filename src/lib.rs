@@ -1,5 +1,5 @@
 mod errors;
-use errors::PollError;
+use errors::PollTableError;
 use std::{collections::HashMap, path::Path};
 use chrono::NaiveDate;
 use csv::ReaderBuilder;
@@ -36,7 +36,7 @@ pub struct Poll {
 }
 
 impl PollTable {
-    pub fn from_path(path: &Path) -> Result<PollTable, PollError> {
+    pub fn from_path(path: &Path) -> Result<PollTable, PollTableError> {
         let mut rdr = ReaderBuilder::new().from_path(path)?;
         let mut polls: Vec<Poll> = Vec::new();
         for result in rdr.deserialize() {
