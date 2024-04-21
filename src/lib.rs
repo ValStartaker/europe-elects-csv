@@ -136,24 +136,24 @@ fn init_jurisdiction() -> HashMap<String, Jurisdiction> {
 #[derive(Debug)]
 /// Represents one EuropeElects .csv file.
 /// It contains metadata about the particular poll file, and the individual opinion polls themselves.
-pub struct PollTable {
-    polls: Vec<Poll>,
+pub struct PollTable<'a> {
+    polls: Vec<Poll<'a>>,
     jurisdiction: Jurisdiction,
 }
 
 #[derive(Debug)]
 /// Unlike [PollTable], contains no jurisdiction validation and as such can contain arbitary polling data that conforms to the EuropeElects .csv standard.
-pub struct RawPollTable {
-    polls: Vec<Poll>,
+pub struct RawPollTable<'a> {
+    polls: Vec<Poll<'a>>,
 }
 
 /// Each Poll is one line of .csv, and represents all metadata and party results for one opinion poll.
 #[derive(Debug, Deserialize)]
-pub struct Poll {
+pub struct Poll<'a> {
     #[serde(rename = "Polling Firm")]
-    polling_firm: String,
+    polling_firm: &'a str,
     #[serde(rename = "Commissioners")]
-    commissioners: PollOption<String>,
+    commissioners: PollOption<&'a str>,
     #[serde(rename = "Fieldwork Start")]
     fieldwork_start: NaiveDate,
     #[serde(rename = "Fieldwork End")]
@@ -169,13 +169,13 @@ pub struct Poll {
     #[serde(rename = "Precision")]
     precision: PollOption<PercentageOrSeats>,
     #[serde(flatten)]
-    party_results: HashMap<String, PollOption<PercentageOrSeats>>,
+    party_results: HashMap<&'a str, PollOption<PercentageOrSeats>>,
     #[serde(rename = "Other")]
     other: PollOption<PercentageOrSeats>,
 }
 
-impl PollTable {
-    pub fn new(polls: Vec<Poll>, jurisdiction: Jurisdiction) -> Self {
+impl<'a> PollTable<'a> {
+    pub fn new(polls: Vec<Poll<'a>>, jurisdiction: Jurisdiction) -> Self {
         PollTable {
             polls,
             jurisdiction,
@@ -258,7 +258,7 @@ impl PollTable {
     ///     Epic Polling,The Daily Snail,2024-03-06,2024-03-08,National,2054,Provided,Not Available,1%,30%,40%,25%,5%"#;
     /// let example_poll = PollTable::from_str(example, "de").unwrap();
     /// ```
-    pub fn from_str(s: &str, jurisdiction: &str) -> Result<PollTable, PollTableFromStrError> {
+    pub fn from_str<'b>(s: &str, jurisdiction: &str) -> Result<PollTable<'a>, PollTableFromStrError> {
         let mut rdr = ReaderBuilder::new().from_reader(s.as_bytes());
         let mut polls: Vec<Poll> = Vec::new();
 
@@ -300,7 +300,7 @@ impl PollTable {
     ///
     /// assert_eq!(example_poll.polling_firm(0), "Epic Polling")
     /// ```
-    pub fn polling_firm(&self, index: usize) -> Option<&String> {
+    pub fn polling_firm(&self, index: usize) -> Option<&str> {
         Some(&self.polls.get(index)?.polling_firm)
     }
     /// Returns the commissioners of the given poll by index, or returns PollOption::NotAvailable if the "Commissioners" field is empty.
@@ -314,8 +314,8 @@ impl PollTable {
     /// assert_eq!(example_poll.commissioners(), PollOption::Some("ExampleCommissioner"))
     /// assert_eq!(poll_with_empty_commissioners.commissioners(), PollOption::NotAvailable)
     /// ```
-    pub fn commissioners(&self, index: usize) -> Option<&PollOption<String>> {
-        Some(&self.polls.get(index)?.commissioners)
+    pub fn commissioners(&self, index: usize) -> Option<PollOption<&str>> {
+        Some(self.polls.get(index)?.commissioners)
     }
 
     /// Returns the date of the beginning of the poll's fieldwork using [chrono]'s NaiveDate format.
@@ -358,7 +358,7 @@ impl PollTable {
         &self.polls[index].precision
     }
 
-    pub fn party_results(&self, index: usize) -> &HashMap<String, PollOption<PercentageOrSeats>> {
+    pub fn party_results(&self, index: usize) -> &HashMap<&str, PollOption<PercentageOrSeats>> {
         &self.polls[index].party_results
     }
 
@@ -388,33 +388,17 @@ impl PollTable {
 }
 
 
-impl RawPollTable {
+impl<'a> RawPollTable<'a> {
     /// Creates a new RawPollTable from a Vec of [Poll]s.
-    pub fn new(polls: Vec<Poll>) -> Self {
+    pub fn new(polls: Vec<Poll<'a>>) -> Self {
         RawPollTable { polls }
     }
 }
 
-impl FromStr for RawPollTable {
-    type Err = RawPollTableFromStrError;
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let mut rdr = ReaderBuilder::new().from_reader(s.as_bytes());
-        let mut polls: Vec<Poll> = Vec::new();
-
-        // Polls
-        for result in rdr.deserialize() {
-            let record: Poll = result?;
-            polls.push(record);
-        }
-
-        Ok(RawPollTable { polls })
-    }
-}
-
-impl Poll {
+impl<'a> Poll<'a> {
     pub fn new(
-        polling_firm: String,
-        commissioners: PollOption<String>,
+        polling_firm: &'a str,
+        commissioners: PollOption<&'a str>,
         fieldwork_start: NaiveDate,
         fieldwork_end: NaiveDate,
         scope: Scope,
@@ -422,7 +406,7 @@ impl Poll {
         sample_size_qualification: PollOption<SampleSizeQualification>,
         participation: PollOption<Percentage>,
         precision: PollOption<PercentageOrSeats>,
-        party_results: HashMap<String, PollOption<PercentageOrSeats>>,
+        party_results: HashMap<&'a str, PollOption<PercentageOrSeats>>,
         other: PollOption<PercentageOrSeats>
     ) -> Self {
         Poll {
@@ -440,7 +424,7 @@ impl Poll {
         }
     }
 
-    pub fn party_results(&self) -> &HashMap<String, PollOption<PercentageOrSeats>> {
+    pub fn party_results(&self) -> &HashMap<&str, PollOption<PercentageOrSeats>> {
         &self.party_results
     }
 }
@@ -480,7 +464,7 @@ impl<T> PollOption<T> {
             PollOption::NotAvailable => panic!("Uh oh!")
         }
     }
-    pub fn is_ok(&self) -> bool {
+    pub fn is_some(&self) -> bool {
         match self {
             PollOption::Some(_) => true,
             PollOption::NotAvailable => false,
@@ -514,15 +498,15 @@ impl PercentageOrSeats {
         }
     }
 }
-impl<'de> Deserialize<'de> for PollOption<String> {
-    fn deserialize<D>(deserializer: D) -> Result<PollOption<String>, D::Error>
+impl<'de, 'a: 'de> Deserialize<'de> for PollOption<&'de str> {
+    fn deserialize<D>(deserializer: D) -> Result<PollOption<&'de str>, D::Error>
     where
         D: Deserializer<'de>,
     {
-        let val: String = Deserialize::deserialize(deserializer)?;
-        match val.as_str() {
+        let val: &str = Deserialize::deserialize(deserializer)?;
+        match val {
             "Not Available" | "N/A" => Ok(PollOption::NotAvailable),
-            _ => Ok(PollOption::Some(val.to_string())),
+            _ => Ok(PollOption::Some(&val)),
         }
     }
 }
